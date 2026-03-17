@@ -4,16 +4,25 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CAREFLOW 4</title>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #f2ede8; }
+    body { background: #e8ddd0; }
+    #error { display:none; padding:20px; color:#c00; font-family:monospace; font-size:13px; background:#fff3f3; border:1px solid #fcc; margin:20px; border-radius:8px; }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"><div style="padding:40px;text-align:center;font-family:sans-serif;color:#9a9088;">Loading CAREFLOW...</div></div>
+  <div id="error"></div>
+  <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var el = document.getElementById('error');
+      el.style.display = 'block';
+      el.textContent = 'Error: ' + msg + ' (line ' + line + ')';
+    };
+  </script>
   <script type="text/babel">
     const { useState, useEffect } = React;
 
@@ -499,21 +508,19 @@ function CareFlow4() {
                   <div key={p.id} style={{ ...S.hvCard, borderLeftColor: p.sectionColor }}>
                     <div style={S.hvRow}>
                       <span style={{ ...S.chip, background: p.sectionDim, color: p.sectionColor, borderColor: p.sectionColor+"55" }}>{p.subcatLabel}</span>
-                      <span style={S.hvName}>{p.room ? `[${p.room}] ` : ""}{p.name}</span>
-                      <span style={{ fontSize: 10, color: PRIO_COLOR[p.priority] }}>● {p.priority}</span>
-                    </div>
-                    {p.notes && <div style={S.hvNote}>📋 {p.notes}</div>}
-                    {p.incomplete.map(t => <div key={t.id} style={S.hvTask}>○ {t.name}</div>)}
+                      <span style={S.hvName}>{p.room ? "[" + p.room + "] " : ""}{p.name}</span>
                   </div>
                 ))}
                 <div style={S.hvBtnRow}>
                   <button style={S.copyBtn} onClick={() => {
-                    const txt = `SHIFT HANDOVER — PENDING TASKS\n${new Date().toLocaleString("en-AU")}\n\n` +
-                      hover.map(p =>
-                        `[${p.room||"–"}] ${p.name} — ${p.subcatLabel}${p.notes ? `\nNote: ${p.notes}` : ""}\n` +
-                        p.incomplete.map(t => `  ○ ${t.name}`).join("\n")
-                      ).join("\n\n");
-                    navigator.clipboard.writeText(txt).catch(()=>{});
+                    const header = "SHIFT HANDOVER — PENDING TASKS\n" + new Date().toLocaleString("en-AU") + "\n\n";
+                    const body = hover.map(function(p) {
+                      const room = p.room ? "[" + p.room + "] " : "";
+                      const note = p.notes ? "\nNote: " + p.notes : "";
+                      const tasks = p.incomplete.map(function(t) { return "  ○ " + t.name; }).join("\n");
+                      return room + p.name + " — " + p.subcatLabel + note + "\n" + tasks;
+                    }).join("\n\n");
+                    navigator.clipboard.writeText(header + body).catch(function(){});
                   }}>Copy</button>
                   <button style={S.printBtn} onClick={() => printHandover("pending", hover, completed)}>🖨 Print</button>
                 </div>
@@ -529,7 +536,7 @@ function CareFlow4() {
                   <div key={p.id} style={{ ...S.hvCard, borderLeftColor: p.sectionColor }}>
                     <div style={S.hvRow}>
                       <span style={{ ...S.chip, background: p.sectionDim, color: p.sectionColor, borderColor: p.sectionColor+"55" }}>{p.subcatLabel}</span>
-                      <span style={S.hvName}>{p.room ? `[${p.room}] ` : ""}{p.name}</span>
+                      <span style={S.hvName}>{p.room ? "[" + p.room + "] " : ""}{p.name}</span>
                       <span style={{ fontSize: 10, color: PRIO_COLOR[p.priority] }}>● {p.priority}</span>
                     </div>
                     {p.notes && <div style={S.hvNote}>📋 {p.notes}</div>}
@@ -538,12 +545,14 @@ function CareFlow4() {
                 ))}
                 <div style={S.hvBtnRow}>
                   <button style={S.copyBtn} onClick={() => {
-                    const txt = `SHIFT HANDOVER — COMPLETED TASKS\n${new Date().toLocaleString("en-AU")}\n\n` +
-                      completed.map(p =>
-                        `[${p.room||"–"}] ${p.name} — ${p.subcatLabel}${p.notes ? `\nNote: ${p.notes}` : ""}\n` +
-                        p.done_tasks.map(t => `  ✓ ${t.name}`).join("\n")
-                      ).join("\n\n");
-                    navigator.clipboard.writeText(txt).catch(()=>{});
+                    const header = "SHIFT HANDOVER — COMPLETED TASKS\n" + new Date().toLocaleString("en-AU") + "\n\n";
+                    const body = completed.map(function(p) {
+                      const room = p.room ? "[" + p.room + "] " : "";
+                      const note = p.notes ? "\nNote: " + p.notes : "";
+                      const tasks = p.done_tasks.map(function(t) { return "  ✓ " + t.name; }).join("\n");
+                      return room + p.name + " — " + p.subcatLabel + note + "\n" + tasks;
+                    }).join("\n\n");
+                    navigator.clipboard.writeText(header + body).catch(function(){});
                   }}>Copy</button>
                   <button style={S.printBtn} onClick={() => printHandover("completed", hover, completed)}>🖨 Print</button>
                 </div>
