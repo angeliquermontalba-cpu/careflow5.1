@@ -9,7 +9,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #e8ddd0; }
+    body { background: #f2ede8; }
   </style>
 </head>
 <body>
@@ -49,12 +49,12 @@ function printHandover(type, hover, completed) {
     .date { font-size: 11px; color: #9a9088; margin-bottom: 24px; letter-spacing: 0.06em; }
     .patient { border-left: 3px solid #c4a46a; padding: 10px 14px; margin-bottom: 10px; page-break-inside: avoid; }
     .pt-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
-    .chip { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #7a9088; background: #e8ddd0; border: 1px solid #ddd6ce; border-radius: 3px; padding: 1px 6px; }
+    .chip { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #7a9088; background: #f2ede8; border: 1px solid #ddd6ce; border-radius: 3px; padding: 1px 6px; }
     .pt-name { font-size: 14px; font-weight: 700; }
     .priority { font-size: 10px; color: #c4a46a; }
     .note { font-size: 11px; color: #9a9088; margin-bottom: 6px; }
     .task { font-size: 12px; color: ${isPending ? "#5a6a7a" : "#5a8a6a"}; padding: 2px 0; }
-    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd0c0; font-size: 10px; color: #b0a89e; text-align: center; letter-spacing: 0.06em; }
+    .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e8e0d8; font-size: 10px; color: #b0a89e; text-align: center; letter-spacing: 0.06em; }
     @media print { body { padding: 20px 24px; } }
   </style></head><body>
     <h1>CAREFLOW — ${title}</h1>
@@ -351,7 +351,7 @@ const uid     = () => `${++_uid}`;
 const mkTasks = (names) => names.map(n => ({ id: uid(), name: n, done: false }));
 const load    = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } };
 const save    = (d) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} };
-const blank   = () => ({ name:"", room:"", section:"NEW_INCIDENT", subcat:"fall", priority:"High", notes:"", customTasks:[] });
+const blank   = () => ({ name:"", room:"", priority:"High", notes:"", customTasks:[], selectedSubcats:[] });
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 function CareFlow4() {
@@ -374,22 +374,49 @@ function CareFlow4() {
   const getSub      = (sec, sub) => SECTIONS[sec]?.subcategories?.find(s => s.id === sub);
 
   const submitForm = () => {
-    const sub = getSub(form.section, form.subcat);
-    if (!sub) return;
-    if (sub.wizard) { setWizard({ step: 1, snap: { ...form } }); setModal("wizard"); return; }
-    const names = sub.customizable ? (form.customTasks.length > 0 ? form.customTasks : []) : sub.tasks;
-    finalise(form, names, null);
+    if (!form.selectedSubcats.length) return;
+    // check if any selected subcat has a wizard
+    const wizardEntry = form.selectedSubcats.find(({secId, subId}) => getSub(secId, subId)?.wizard);
+    if (wizardEntry) { setWizard({ step: 1, snap: { ...form }, wizardEntry }); setModal("wizard"); return; }
+    finaliseFull(form, null, null);
   };
 
-  const finalise = (f, names, warning) => {
-    const sec = SECTIONS[f.section];
-    const sub = getSub(f.section, f.subcat);
+  const finaliseFull = (f, wizardTaskOverride, warningTag) => {
+    // merge tasks from all selected subcats, deduplicate by name
+    const seen = new Set();
+    const allTasks = [];
+    f.selectedSubcats.forEach(({secId, subId}) => {
+      const sub = getSub(secId, subId);
+      if (!sub) return;
+      const names = sub.customizable
+        ? (f.customTasks.length > 0 ? f.customTasks : [])
+        : (sub.wizard && wizardTaskOverride ? wizardTaskOverride : sub.tasks);
+      names.forEach(n => { if (!seen.has(n)) { seen.add(n); allTasks.push(n); } });
+    });
+
+    // primary section = first selected
+    const primary = f.selectedSubcats[0];
+    const priSec  = SECTIONS[primary.secId];
+    const priSub  = getSub(primary.secId, primary.subId);
+
+    // build chip list for all selected
+    const chips = f.selectedSubcats.map(({secId, subId}) => {
+      const sec = SECTIONS[secId];
+      const sub = getSub(secId, subId);
+      return { label: sub?.label || "", color: sec?.color || "#94a3b8", dim: sec?.dim || "#f2ede8" };
+    });
+
     setPatients(ps => [...ps, {
       id: uid(), name: f.name.trim(), room: f.room.trim(),
-      section: f.section, subcat: f.subcat,
-      subcatLabel: sub?.label || "", sectionColor: sec?.color || "#94a3b8", sectionDim: sec?.dim || "#1e293b",
+      section: primary.secId,
+      subcatLabel: priSub?.label || "",
+      sectionColor: priSec?.color || "#94a3b8",
+      sectionDim: priSec?.dim || "#f2ede8",
+      chips,
       priority: f.priority, notes: f.notes.trim(),
-      tasks: mkTasks(names), warningTag: warning || null, resolved: false,
+      tasks: mkTasks(allTasks),
+      warningTag: warningTag || null,
+      resolved: false,
       addedAt: new Date().toLocaleTimeString("en-AU", { hour:"2-digit", minute:"2-digit" }),
     }]);
     setModal(null); setWizard(null);
@@ -397,9 +424,9 @@ function CareFlow4() {
 
   const doneWizard = (isFall, ctbDone) => {
     const f = wizard.snap;
-    const names = (!isFall || ctbDone) ? RFH_STANDARD : RFH_FALL_NO_CTB;
-    const warn  = (isFall && !ctbDone) ? "NEUROLOGICAL OBSERVATIONS REQUIRED — CT BRAIN NOT COMPLETED · CONTINUE FOR 3 DAYS OR PER FACILITY POLICY" : null;
-    finalise(isFall && !ctbDone ? { ...f, priority: "High" } : f, names, warn);
+    const taskOverride = (!isFall || ctbDone) ? RFH_STANDARD : RFH_FALL_NO_CTB;
+    const warn = (isFall && !ctbDone) ? "NEUROLOGICAL OBSERVATIONS REQUIRED — CT BRAIN NOT COMPLETED · CONTINUE FOR 3 DAYS OR PER FACILITY POLICY" : null;
+    finaliseFull(isFall && !ctbDone ? { ...f, priority: "High" } : f, taskOverride, warn);
   };
 
   const grouped = SECTION_ORDER
@@ -428,6 +455,10 @@ function CareFlow4() {
           <button style={{ ...S.navBtn, ...(view==="handover" ? S.navOn : {}) }}
             onClick={() => setView(v => v==="board" ? "handover" : "board")}>
             {view==="board" ? "Handover →" : "← Board"}
+          </button>
+          <button style={{ ...S.navBtn, borderColor:"#e8c99a", color:"#9a6f3a" }}
+            onClick={() => setModal("new_shift")}>
+            New Shift
           </button>
         </div>
       </header>
@@ -549,7 +580,26 @@ function CareFlow4() {
           <AddModal form={form} setForm={setForm} getSub={getSub} onSubmit={submitForm} onClose={() => setModal(null)} />
         </Overlay>
       )}
-      {modal === "wizard" && wizard && (
+      {modal === "new_shift" && (
+        <Overlay onClose={() => setModal(null)}>
+          <div style={{ ...S.modal, maxWidth:360 }}>
+            <div style={S.mT}>Start New Shift?</div>
+            <div style={{ fontSize:13, color:"#9a9088", marginBottom:24, lineHeight:1.6 }}>
+              This will clear the entire board. All current patients and tasks will be removed.<br/><br/>
+              <strong style={{ color:"#2d3748" }}>Tip:</strong> Go to Handover first to copy or print anything you need to keep.
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button style={S.cancelBtn} onClick={() => setModal(null)}>Cancel</button>
+              <button style={{ ...S.confirmBtn, background:"#c4a46a" }} onClick={() => {
+                setPatients([]);
+                setExpanded({});
+                setView("board");
+                setModal(null);
+              }}>Clear & Start Fresh</button>
+            </div>
+          </div>
+        </Overlay>
+      )}
         <Overlay onClose={() => { setModal(null); setWizard(null); }}>
           <WizardModal step={wizard.step} ptName={wizard.snap.name} ptRoom={wizard.snap.room}
             onStep={s => setWizard(w => ({ ...w, step: s }))}
@@ -575,7 +625,7 @@ function PatientRow({ pt, isOpen, onOpen, onCheck, onResolve, onRemove, onNote }
     <div style={{
       ...S.ptRow,
       borderLeftColor: pt.resolved ? "#ddd6ce" : PRIO_COLOR[pt.priority],
-      background: pt.resolved ? "#ede6dc" : PRIO_BG[pt.priority],
+      background: pt.resolved ? "#f7f4f1" : PRIO_BG[pt.priority],
       opacity: pt.resolved ? 0.6 : 1,
     }}>
       <div style={S.ptMain} onClick={onOpen}>
@@ -583,7 +633,9 @@ function PatientRow({ pt, isOpen, onOpen, onCheck, onResolve, onRemove, onNote }
           <span style={{ color: PRIO_COLOR[pt.priority], fontSize: 9 }}>●</span>
           {pt.room && <span style={S.roomTag}>{pt.room}</span>}
           <span style={S.ptName}>{pt.name}</span>
-          <span style={{ ...S.chip, background: pt.sectionDim, color: pt.sectionColor, borderColor: pt.sectionColor+"44" }}>{pt.subcatLabel}</span>
+          {(pt.chips || [{ label: pt.subcatLabel, color: pt.sectionColor, dim: pt.sectionDim }]).map((c, i) => (
+            <span key={i} style={{ ...S.chip, background: c.dim, color: c.color, borderColor: c.color+"44" }}>{c.label}</span>
+          ))}
           {pt.resolved && <span style={S.resTag}>RESOLVED</span>}
         </div>
         <div style={S.ptR}>
@@ -648,17 +700,26 @@ function PatientRow({ pt, isOpen, onOpen, onCheck, onResolve, onRemove, onNote }
 
 // ─── ADD MODAL ─────────────────────────────────────────────────────────────────
 function AddModal({ form, setForm, getSub, onSubmit, onClose }) {
-  const sec    = SECTIONS[form.section];
-  const subcats = sec?.subcategories || [];
-  const sub    = getSub(form.section, form.subcat) || subcats[0];
 
-  const chSec = v => {
-    const subs = SECTIONS[v]?.subcategories || [];
-    setForm(f => ({ ...f, section: v, subcat: subs[0]?.id || "", customTasks: [] }));
+  const togSubcat = (secId, subId) => {
+    const key = `${secId}::${subId}`;
+    setForm(f => {
+      const exists = f.selectedSubcats.find(s => s.secId===secId && s.subId===subId);
+      return { ...f, selectedSubcats: exists
+        ? f.selectedSubcats.filter(s => !(s.secId===secId && s.subId===subId))
+        : [...f.selectedSubcats, { secId, subId, key }]
+      };
+    });
   };
+
+  const isOn = (secId, subId) => !!form.selectedSubcats.find(s => s.secId===secId && s.subId===subId);
+
   const togCust = task => setForm(f => ({
     ...f, customTasks: f.customTasks.includes(task) ? f.customTasks.filter(t=>t!==task) : [...f.customTasks, task],
   }));
+
+  const hasWizard = form.selectedSubcats.some(({secId, subId}) => getSub(secId, subId)?.wizard);
+  const hasOther  = form.selectedSubcats.some(({secId, subId}) => getSub(secId, subId)?.customizable);
 
   return (
     <div style={S.modal}>
@@ -673,31 +734,47 @@ function AddModal({ form, setForm, getSub, onSubmit, onClose }) {
         </Fld>
       </div>
 
-      <Fld label="Section">
-        <MS value={form.section} onChange={e => chSec(e.target.value)}>
-          {Object.values(SECTIONS).map(s => <option key={s.id} value={s.id}>{s.emoji} {s.label}</option>)}
-        </MS>
+      <Fld label="Monitoring Categories — select all that apply">
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {Object.values(SECTIONS).map(sec => (
+            <div key={sec.id}>
+              <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase", color: sec.color, marginBottom:5 }}>
+                {sec.emoji} {sec.label}
+              </div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                {sec.subcategories.map(sub => {
+                  const on = isOn(sec.id, sub.id);
+                  return (
+                    <button key={sub.id} type="button" onClick={() => togSubcat(sec.id, sub.id)} style={{
+                      fontSize:11, padding:"5px 10px", borderRadius:6, border:"1px solid",
+                      cursor:"pointer", fontFamily:"inherit", fontWeight: on ? 700 : 500,
+                      background: on ? sec.dim : "#f7f3ef",
+                      color: on ? sec.color : "#9a9088",
+                      borderColor: on ? sec.color : "#ddd6ce",
+                      transition:"all 0.12s",
+                    }}>{sub.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       </Fld>
 
-      <Fld label="Category">
-        <MS value={form.subcat} onChange={e => setForm(f=>({...f,subcat:e.target.value,customTasks:[]}))}>
-          {subcats.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </MS>
-      </Fld>
+      {hasWizard && <div style={S.infoBox}>📋 Return from Hospital selected — you'll be asked about fall transfer and CT Brain status next.</div>}
 
-      {sub?.wizard && <div style={S.infoBox}>📋 You will be asked about fall transfer and CT Brain status on the next screen.</div>}
-
-      {sub?.customizable && (
-        <Fld label="Select Monitoring Tasks">
+      {hasOther && (
+        <Fld label="Other Monitoring Tasks">
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {sub.availableTasks.map(task => {
+            {SECTIONS.OTHER.subcategories[0].availableTasks.map(task => {
               const on = form.customTasks.includes(task);
               return (
                 <button key={task} type="button" onClick={() => togCust(task)} style={{
-                  ...S.chip, padding:"4px 9px", cursor:"pointer", fontFamily:"inherit",
-                  background: on ? "#0f2042" : "#0a0f1a",
-                  color: on ? "#60a5fa" : "#334155",
-                  borderColor: on ? "#3b82f6" : "#0f172a",
+                  fontSize:11, padding:"4px 9px", borderRadius:6, border:"1px solid",
+                  cursor:"pointer", fontFamily:"inherit",
+                  background: on ? "#f4f7f9" : "#f7f3ef",
+                  color: on ? "#8fa3b1" : "#9a9088",
+                  borderColor: on ? "#8fa3b1" : "#ddd6ce",
                 }}>{task}</button>
               );
             })}
@@ -713,9 +790,9 @@ function AddModal({ form, setForm, getSub, onSubmit, onClose }) {
               <button key={p} type="button" onClick={() => setForm(f=>({...f,priority:p}))} style={{
                 flex:1, padding:"8px 0", borderRadius:8, border:"1px solid",
                 fontSize:12, cursor:"pointer", fontWeight:700, fontFamily:"inherit",
-                color: on ? PRIO_COLOR[p] : "#334155",
+                color: on ? PRIO_COLOR[p] : "#9a9088",
                 background: on ? PRIO_BG[p] : "transparent",
-                borderColor: on ? PRIO_COLOR[p] : "#0f172a",
+                borderColor: on ? PRIO_COLOR[p] : "#ddd6ce",
               }}>{p}</button>
             );
           })}
@@ -730,9 +807,12 @@ function AddModal({ form, setForm, getSub, onSubmit, onClose }) {
 
       <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:8 }}>
         <button style={S.cancelBtn} onClick={onClose}>Cancel</button>
-        <button style={{ ...S.confirmBtn, opacity: form.name.trim() ? 1 : 0.35 }}
-          onClick={onSubmit} disabled={!form.name.trim()}>
-          {sub?.wizard ? "Next →" : "Add to Board"}
+        <button
+          style={{ ...S.confirmBtn, opacity: (form.name.trim() && form.selectedSubcats.length > 0) ? 1 : 0.35 }}
+          onClick={onSubmit}
+          disabled={!form.name.trim() || form.selectedSubcats.length === 0}
+        >
+          {hasWizard ? "Next →" : "Add to Board"}
         </button>
       </div>
     </div>
@@ -806,8 +886,8 @@ function MS({ value, onChange, children }) {
 
 // ─── STYLES ────────────────────────────────────────────────────────────────────
 const S = {
-  shell: { minHeight:"100vh", background:"#e8ddd0", color:"#2d3748", fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif", paddingBottom:100 },
-  header: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 20px", borderBottom:"1px solid #ddd0c0", background:"#e8ddd0", position:"sticky", top:0, zIndex:20, boxShadow:"0 1px 8px #00000008" },
+  shell: { minHeight:"100vh", background:"#f2ede8", color:"#2d3748", fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif", paddingBottom:100 },
+  header: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 20px", borderBottom:"1px solid #e8e0d8", background:"#f2ede8", position:"sticky", top:0, zIndex:20, boxShadow:"0 1px 8px #00000008" },
   logo: { fontSize:18, fontWeight:900, letterSpacing:"0.16em", color:"#2d3748" },
   sub: { fontSize:9, color:"#b0a89e", letterSpacing:"0.18em", textTransform:"uppercase" },
   hR: { display:"flex", gap:18, alignItems:"center" },
@@ -821,25 +901,25 @@ const S = {
   ptMain: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", cursor:"pointer", gap:8 },
   ptL: { display:"flex", alignItems:"center", gap:7, flexWrap:"wrap", flex:1, minWidth:0 },
   ptR: { display:"flex", alignItems:"center", gap:8, flexShrink:0 },
-  roomTag: { fontSize:11, background:"#e0d5c5", color:"#7a7068", padding:"2px 7px", borderRadius:3, fontWeight:700, letterSpacing:"0.06em" },
+  roomTag: { fontSize:11, background:"#ede8e2", color:"#7a7068", padding:"2px 7px", borderRadius:3, fontWeight:700, letterSpacing:"0.06em" },
   ptName: { fontSize:15, fontWeight:700, color:"#2d3748" },
   chip: { fontSize:10, fontWeight:600, padding:"2px 7px", borderRadius:4, border:"1px solid", letterSpacing:"0.04em", textTransform:"uppercase" },
-  resTag: { fontSize:9, background:"#e0d5c5", color:"#b0a89e", padding:"1px 6px", borderRadius:3, fontWeight:700, letterSpacing:"0.1em" },
+  resTag: { fontSize:9, background:"#ede8e2", color:"#b0a89e", padding:"1px 6px", borderRadius:3, fontWeight:700, letterSpacing:"0.1em" },
   mBar: { width:44, height:2, background:"#ddd6ce", borderRadius:2, overflow:"hidden" },
   mFill: { height:"100%", borderRadius:2, transition:"width 0.3s" },
   warn: { background:"#fdf6ee", border:"1px solid #e8c99a", color:"#9a6f3a", fontSize:11, fontWeight:600, padding:"6px 10px", borderRadius:6, marginBottom:8, letterSpacing:"0.02em", lineHeight:1.4 },
   expArea: { paddingBottom:12 },
   noteWrap: { position:"relative", paddingBottom:10 },
-  noteArea: { width:"100%", background:"#ede6dc", border:"1px solid", borderRadius:6, padding:"7px 10px", fontSize:13, lineHeight:1.5, fontFamily:"inherit", resize:"vertical", outline:"none", boxSizing:"border-box", transition:"border-color 0.2s", color:"#2d3748" },
+  noteArea: { width:"100%", background:"#f7f3ef", border:"1px solid", borderRadius:6, padding:"7px 10px", fontSize:13, lineHeight:1.5, fontFamily:"inherit", resize:"vertical", outline:"none", boxSizing:"border-box", transition:"border-color 0.2s", color:"#2d3748" },
   noteSave: { position:"absolute", right:4, bottom:14, background:"#7a9abf", border:"none", borderRadius:5, padding:"3px 12px", color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" },
   actBtn: { background:"none", border:"1px solid #ddd6ce", borderRadius:6, padding:"5px 14px", fontSize:12, cursor:"pointer", fontWeight:600, fontFamily:"inherit", color:"#9a9088" },
   overlay: { position:"fixed", inset:0, background:"#00000044", backdropFilter:"blur(3px)", zIndex:50, display:"flex", alignItems:"center", justifyContent:"center", padding:16 },
   fab: { position:"fixed", bottom:24, right:24, width:54, height:54, borderRadius:"50%", background:"#7a9abf", color:"#fff", border:"none", fontSize:26, cursor:"pointer", boxShadow:"0 3px 16px #7a9abf55", zIndex:30, display:"flex", alignItems:"center", justifyContent:"center", lineHeight:1 },
-  modal: { background:"#f0e9df", border:"1px solid #ddd0c0", borderRadius:16, padding:"22px 20px", width:"100%", maxWidth:460, maxHeight:"92vh", overflowY:"auto" },
+  modal: { background:"#faf7f4", border:"1px solid #e8e0d8", borderRadius:16, padding:"22px 20px", width:"100%", maxWidth:460, maxHeight:"92vh", overflowY:"auto" },
   mT: { fontSize:16, fontWeight:800, color:"#2d3748", marginBottom:16 },
   mlbl: { fontSize:10, color:"#b0a89e", fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:5 },
-  mi: { width:"100%", background:"#e8ddd0", border:"1px solid #ddd6ce", borderRadius:8, padding:"9px 11px", color:"#2d3748", fontSize:13, outline:"none", boxSizing:"border-box", fontFamily:"inherit" },
-  ms: { width:"100%", background:"#e8ddd0", border:"1px solid #ddd6ce", borderRadius:8, padding:"9px 11px", color:"#2d3748", fontSize:13, outline:"none", boxSizing:"border-box", fontFamily:"inherit", cursor:"pointer" },
+  mi: { width:"100%", background:"#f2ede8", border:"1px solid #ddd6ce", borderRadius:8, padding:"9px 11px", color:"#2d3748", fontSize:13, outline:"none", boxSizing:"border-box", fontFamily:"inherit" },
+  ms: { width:"100%", background:"#f2ede8", border:"1px solid #ddd6ce", borderRadius:8, padding:"9px 11px", color:"#2d3748", fontSize:13, outline:"none", boxSizing:"border-box", fontFamily:"inherit", cursor:"pointer" },
   infoBox: { background:"#eef3f8", border:"1px solid #c5d8e8", color:"#4a7a9b", fontSize:12, padding:"8px 11px", borderRadius:8, marginBottom:12 },
   cancelBtn: { background:"none", border:"1px solid #ddd6ce", borderRadius:8, padding:"9px 18px", color:"#9a9088", fontSize:13, cursor:"pointer", fontWeight:600, fontFamily:"inherit" },
   confirmBtn: { background:"#7a9abf", border:"none", borderRadius:8, padding:"9px 22px", color:"#fff", fontSize:13, cursor:"pointer", fontWeight:700, fontFamily:"inherit" },
@@ -848,10 +928,10 @@ const S = {
   wBB: { background:"#eef3f8", border:"1px solid #b8cfe0", borderRadius:10, padding:"13px 16px", color:"#4a7a9b", fontSize:13, cursor:"pointer", fontWeight:600, fontFamily:"inherit", textAlign:"left" },
   hvT: { fontSize:18, fontWeight:900, color:"#2d3748", padding:"24px 20px 4px" },
   hvS: { fontSize:11, color:"#b0a89e", padding:"0 20px 10px", letterSpacing:"0.04em" },
-  hvTabs: { display:"flex", borderBottom:"1px solid #ddd0c0", margin:"0 20px 16px", gap:0 },
+  hvTabs: { display:"flex", borderBottom:"1px solid #e8e0d8", margin:"0 20px 16px", gap:0 },
   hvTabBtn: { padding:"8px 20px", fontSize:12, fontWeight:700, cursor:"pointer", border:"none", letterSpacing:"0.04em", fontFamily:"inherit", transition:"all 0.15s" },
   hvBtnRow: { display:"flex", gap:10, justifyContent:"center", margin:"20px 0 0" },
-  hvCard: { borderLeft:"3px solid", padding:"12px 20px", marginBottom:1, background:"#f0e9df" },
+  hvCard: { borderLeft:"3px solid", padding:"12px 20px", marginBottom:1, background:"#faf7f4" },
   hvRow: { display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" },
   hvName: { fontSize:13, fontWeight:700, color:"#2d3748" },
   hvNote: { fontSize:12, color:"#9a9088", marginBottom:6 },
